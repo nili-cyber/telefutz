@@ -1,0 +1,16 @@
+# Copy this to terraform.tfvars and fill in real values, or set the
+# equivalent TF_VAR_* environment variables instead - either way, never
+# commit real secrets into version control.
+
+aws_region   = "us-east-1"
+project_name = "telefutz"
+
+jwt_secret             = "generate-a-long-random-string-here"
+stripe_secret_key      = "sk_live_or_sk_test_..."
+stripe_price_id        = "price_..."
+stripe_webhook_secret  = "whsec_..."
+paypal_client_id       = "..."
+paypal_client_secret   = "..."
+paypal_api_base        = "https://api-m.sandbox.paypal.com" # switch to https://api-m.paypal.com for live payments
+paypal_plan_id         = "P-..."
+paypal_webhook_id      = "..."

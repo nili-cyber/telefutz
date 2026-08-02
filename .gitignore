@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.next/
+.expo/
+web-build/
+*.log
+.env
+
+# Terraform - state can contain secrets in plain text (DB passwords, etc.)
+# and tfvars is where you put real Stripe/PayPal keys. Neither belongs in
+# git, ever - not even in a private repo.
+infra/aws/.terraform/
+infra/aws/*.tfstate
+infra/aws/*.tfstate.*
+infra/aws/*.tfplan
+infra/aws/terraform.tfvars
+infra/aws/crash.log

@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "Telefutz",
+    "slug": "telefutz",
+    "scheme": "telefutz",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#14161C",
+    "splash": { "backgroundColor": "#14161C" },
+    "plugins": ["expo-router"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourcompany.telefutz"
+    },
+    "android": {
+      "package": "com.yourcompany.telefutz",
+      "adaptiveIcon": { "backgroundColor": "#14161C" }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "apiUrl": "https://api.yourdomain.com"
+    }
+  }
+}

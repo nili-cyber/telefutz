@@ -1,0 +1,135 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: telefutz
+      POSTGRES_PASSWORD: telefutz
+      POSTGRES_DB: telefutz
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U telefutz"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  auth-service:
+    build: ./services/auth-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://telefutz:telefutz@postgres:5432/authdb
+      JWT_SECRET: dev-secret-change-me
+      PORT: 4001
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "4001:4001"
+
+  catalog-service:
+    build: ./services/catalog-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://telefutz:telefutz@postgres:5432/catalogdb
+      REDIS_URL: redis://redis:6379
+      PORT: 4002
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "4002:4002"
+
+  recommendation-service:
+    build: ./services/recommendation-service
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://redis:6379
+      CATALOG_SERVICE_URL: http://catalog-service:4002
+      PORT: 4003
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "4003:4003"
+
+  playback-service:
+    build: ./services/playback-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://telefutz:telefutz@postgres:5432/playbackdb
+      REDIS_URL: redis://redis:6379
+      PORT: 4004
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "4004:4004"
+
+  billing-service:
+    build: ./services/billing-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://telefutz:telefutz@postgres:5432/billingdb
+      PORT: 4005
+      STRIPE_SECRET_KEY: sk_test_replace_me
+      STRIPE_PRICE_ID: price_replace_me
+      STRIPE_WEBHOOK_SECRET: whsec_replace_me
+      PAYPAL_CLIENT_ID: replace_me
+      PAYPAL_CLIENT_SECRET: replace_me
+      PAYPAL_API_BASE: https://api-m.sandbox.paypal.com
+      PAYPAL_PLAN_ID: replace_me
+      PAYPAL_WEBHOOK_ID: replace_me
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "4005:4005"
+
+  api-gateway:
+    build: ./services/api-gateway
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+      JWT_SECRET: dev-secret-change-me
+      AUTH_SERVICE_URL: http://auth-service:4001
+      CATALOG_SERVICE_URL: http://catalog-service:4002
+      RECOMMENDATION_SERVICE_URL: http://recommendation-service:4003
+      PLAYBACK_SERVICE_URL: http://playback-service:4004
+      BILLING_SERVICE_URL: http://billing-service:4005
+    depends_on:
+      - auth-service
+      - catalog-service
+      - recommendation-service
+      - playback-service
+      - billing-service
+    ports:
+      - "8080:8080"
+
+# apps/app (the Expo Router web/iOS/Android app) isn't run through Docker -
+# mobile builds can't be containerized this way, and `npm run web` inside
+# apps/app gives a better dev loop than a container would anyway. See
+# apps/app/README.md.
+
+volumes:
+  pgdata:

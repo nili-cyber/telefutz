@@ -1,0 +1,21 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Subscription {
+  id                   String    @id @default(uuid())
+  userId               String    @unique
+  status               String    @default("inactive") // "active" | "inactive" | "past_due" | "canceled"
+  provider             String?   // "stripe" | "paypal"
+  stripeCustomerId     String?
+  stripeSubscriptionId String?   @unique
+  paypalSubscriptionId String?   @unique
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}

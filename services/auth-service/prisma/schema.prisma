@@ -1,0 +1,33 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String    @id @default(uuid())
+  // Both are optional at the schema level, but application logic requires
+  // at least one - a user can sign up with email, phone, or both, and
+  // logging in with either identifier resolves to this same row.
+  email               String?   @unique
+  phone               String?   @unique
+  passwordHash        String?
+  displayName         String
+  role                String    @default("user") // "user" | "admin"
+  createdAt           DateTime  @default(now())
+  resetToken          String?   @unique
+  resetTokenExpiresAt DateTime?
+}
+
+model OtpCode {
+  id        String   @id @default(uuid())
+  phone     String
+  codeHash  String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([phone])
+}

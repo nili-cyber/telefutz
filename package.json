@@ -1,0 +1,16 @@
+{
+  "name": "telefutz",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "services/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "backend:up": "docker compose up --build",
+    "backend:down": "docker compose down",
+    "app:web": "npm run web --workspace=apps/app",
+    "app:start": "npm run start --workspace=apps/app",
+    "app:build:web": "npm run build:web --workspace=apps/app"
+  }
+}
