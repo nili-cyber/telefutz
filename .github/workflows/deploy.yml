@@ -1,0 +1,78 @@
+name: Deploy to AWS
+
+# Manual only - trigger from GitHub's Actions tab ("Deploy to AWS" ->
+# "Run workflow"). Re-add a `push: branches: [main]` trigger under `on:`
+# below if you want it to redeploy automatically on every push instead.
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy backend containers
+        run: |
+          ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.EC2_HOST }} '
+            set -e
+            if [ -d ~/telefutz/.git ]; then
+              cd ~/telefutz
+              git fetch origin
+              git reset --hard origin/main
+            else
+              git clone https://github.com/${{ github.repository }}.git ~/telefutz
+              cd ~/telefutz
+            fi
+
+            # One service at a time, not all six in parallel - a small
+            # instance genuinely runs out of memory otherwise. Swap space
+            # (set up by user_data on first boot) is the safety net if this
+            # still gets close.
+            for s in api-gateway auth-service catalog-service recommendation-service playback-service billing-service; do
+              docker compose build "$s"
+            done
+            docker compose up -d
+          '
+
+  deploy-web:
+    needs: deploy-backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Building here, not on the EC2 instance - GitHub's runners have
+      # plenty of RAM, so this sidesteps the memory constraints entirely
+      # rather than needing swap/sequential tricks like the backend build.
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build web app
+        working-directory: apps/app
+        env:
+          EXPO_PUBLIC_API_URL: ${{ secrets.WEB_API_URL }}
+        run: npm run build:web
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy web build
+        run: |
+          ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.EC2_HOST }} 'mkdir -p ~/telefutz/apps/app'
+          scp -i ~/.ssh/deploy_key -r apps/app/dist ubuntu@${{ secrets.EC2_HOST }}:~/telefutz/apps/app/
+          # Not strictly required for a static file_server, but harmless
+          # and cheap insurance against any caching weirdness.
+          ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.EC2_HOST }} 'sudo systemctl restart caddy || true'
