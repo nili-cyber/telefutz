@@ -29,16 +29,24 @@ app.use("/api/billing/paypal/webhook", createProxyMiddleware({ target: BILLING_U
 
 // Admin-only writes - must be registered before the general /api/catalog
 // proxy below, since Express matches these more specific method+path routes
-// first. Reads (GET /api/catalog/*) stay open to any authenticated user.
+// first. Reads (GET /api/catalog/*) are genuinely public - the landing
+// page shows the catalog to anyone, logged in or not, matching "browsing
+// is free" throughout the app. catalog-service's read routes never look at
+// x-user-id, so there's nothing unsafe about skipping requireAuth here.
 const catalogProxy = createProxyMiddleware({ target: CATALOG_URL, changeOrigin: true, pathRewrite: { "^/api/catalog": "" } });
 app.post("/api/catalog/titles", requireAuth, requireAdmin, catalogProxy);
 app.put("/api/catalog/titles/:id", requireAuth, requireAdmin, catalogProxy);
 app.delete("/api/catalog/titles/:id", requireAuth, requireAdmin, catalogProxy);
+app.use("/api/catalog", catalogProxy);
 
-// Everything past this point requires a valid JWT.
-app.use("/api/catalog", requireAuth, catalogProxy);
 app.use("/api/recommendations", requireAuth, createProxyMiddleware({ target: RECS_URL, changeOrigin: true, pathRewrite: { "^/api/recommendations": "/recommendations" } }));
 app.use("/api/billing", requireAuth, createProxyMiddleware({ target: BILLING_URL, changeOrigin: true, pathRewrite: { "^/api/billing": "" } }));
+
+// Public - free titles only, verified server-side by playback-service
+// itself (it checks catalog-service's isFree flag, not just trusting this
+// URL shape). Registered before the authenticated /api/playback proxy so
+// Express matches this more specific route first.
+app.use("/api/playback/free", createProxyMiddleware({ target: PLAYBACK_URL, changeOrigin: true, pathRewrite: { "^/api/playback/free": "/playback/free" } }));
 
 // Requires a JWT AND an active subscription - this is the actual paywall.
 app.use("/api/playback", requireAuth, requireSubscription, createProxyMiddleware({ target: PLAYBACK_URL, changeOrigin: true, pathRewrite: { "^/api/playback": "/playback" } }));
