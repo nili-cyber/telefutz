@@ -56,7 +56,7 @@ export default function CheckoutResultScreen() {
       {!done && <ActivityIndicator color={colors.accent} style={{ marginBottom: 16 }} />}
       <Text style={styles.body}>{message}</Text>
       {done && (
-        <Pressable style={styles.button} onPress={() => router.replace("/")}>
+        <Pressable style={styles.button} onPress={() => router.replace("/dashboard")}>
           <Text style={styles.buttonText}>Continue</Text>
         </Pressable>
       )}

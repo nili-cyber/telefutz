@@ -34,13 +34,25 @@ stage but worth switching to `prisma migrate` once this has real users.
 
 | Route | Auth | Notes |
 |---|---|---|
-| `GET /titles` | any signed-in user | Optional `?genre=` query param for category browsing |
-| `GET /titles/search` | any signed-in user | `?q=` |
-| `GET /titles/:id` | any signed-in user | |
-| `GET /genres` | any signed-in user | Distinct genres currently in the catalog - what the app's genre chips render from |
-| `POST /titles` | **admin only** | Enforced by `api-gateway`'s `requireAdmin`, not by this service - a request that skips the gateway never reaches here with permission |
+| `GET /titles` | **public** | Optional `?genre=` query param for category browsing |
+| `GET /titles/free` | **public** | Only titles with `isFree: true` - what the landing page's "Free Movies" tab reads from |
+| `GET /titles/search` | **public** | `?q=` |
+| `GET /titles/:id` | **public** | |
+| `GET /genres` | **public** | Distinct genres currently in the catalog - what the app's genre chips render from |
+| `POST /titles` | **admin only** | Enforced by `api-gateway`'s `requireAdmin`, not by this service - a request that skips the gateway never reaches here with permission. Accepts an `isFree` boolean (default `false`). |
 | `PUT /titles/:id` | **admin only** | Same enforcement |
 | `DELETE /titles/:id` | **admin only** | Same enforcement |
+
+Reads are genuinely public - no token required - because the app's public
+landing page (`apps/app/app/index.tsx`, before login) shows the catalog to
+anyone. Writes stay admin-gated regardless.
+
+Watching a free title works without an account too:
+`GET /api/playback/free/:titleId/manifest-url` (through the gateway, public,
+no JWT) - `playback-service` itself verifies the title is actually marked
+`isFree` by asking `catalog-service` before returning a manifest URL, so
+this route can't be used to bypass the paywall on a paid title just by
+knowing its ID.
 
 ### Making a user an admin
 
@@ -152,6 +164,32 @@ checkout genuinely work:
 number is linked to the account immediately, so it can log in via either
 email+password or phone+OTP from then on and always resolves to the same
 `User` row (same `id`, same JWT `sub` claim either way).
+
+## Troubleshooting
+
+**A Prisma-using service (auth, catalog, playback, billing) crash-loops
+with `Error: Could not parse schema engine response` and a mention of
+OpenSSL in the logs.** Prisma's engine needs OpenSSL, and the plain
+`node:20-alpine` base image doesn't ship a version it can detect - its own
+error message about this ends up mangling the JSON response instead of
+printing cleanly, which is what makes the real error easy to miss. Each of
+those four Dockerfiles installs it explicitly (`RUN apk add --no-cache
+openssl` right after the `FROM` line) for exactly this reason - if you ever
+strip that line back out while editing a Dockerfile, this is what comes
+back.
+
+**A service gets `Killed` mid-build, or the whole instance goes
+unresponsive during `docker compose up --build`.** Memory, not a bug -
+building all 6 services' `npm install` steps in parallel needs more RAM
+than a small instance (e.g. AWS `t3.micro`, 1GB) has. Add swap space, or
+build one service at a time instead of all at once:
+```bash
+for s in api-gateway auth-service catalog-service recommendation-service playback-service billing-service; do
+  docker compose build "$s"
+done
+```
+See `infra/aws-starter/README.md` for the full swap-space + sequential-build
+walkthrough if you're on a memory-constrained instance.
 
 ## What's real vs. stubbed
 

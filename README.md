@@ -58,8 +58,10 @@ only covers the backend; that's normal for this kind of split, not a gap.
   run automatically - you apply it yourself with your own AWS credentials.
   For a much cheaper way to get something real online first, see
   `infra/aws-starter/README.md` instead - one EC2 instance running the same
-  `docker-compose.yml` you already use locally, close to free on a new AWS
-  account.
+  `docker-compose.yml` you already use locally, deployed automatically by
+  `.github/workflows/deploy.yml`, triggered manually from GitHub's Actions
+  tab once it's set up (not automatically on every push, by default), close to
+  free on a new AWS account.
 
 - **Backend specifics** (endpoints, ports, what's real vs. stubbed):
   `services/README.md`

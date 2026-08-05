@@ -26,6 +26,7 @@ export type Title = {
   genre: string;
   releaseYear: number;
   posterUrl: string;
+  isFree: boolean;
 };
 
 export async function signup(email: string, password: string, displayName: string, phone?: string) {
@@ -79,6 +80,24 @@ export async function getTitles(genre?: string): Promise<Title[]> {
   const res = await fetch(`${API_URL}/api/catalog/titles${query}`, { headers: await authHeaders() });
   if (!res.ok) return [];
   return res.json();
+}
+
+// Public - what the landing page's "Free Movies" tab shows to anyone,
+// logged in or not. No auth header needed, though sending one (if the
+// visitor happens to be logged in) doesn't hurt anything here.
+export async function getFreeTitles(): Promise<Title[]> {
+  const res = await fetch(`${API_URL}/api/catalog/titles/free`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+// Public - only succeeds for titles actually marked free; playback-service
+// verifies that itself rather than trusting the client.
+export async function getFreeManifestUrl(titleId: string): Promise<string | null> {
+  const res = await fetch(`${API_URL}/api/playback/free/${titleId}/manifest-url`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.manifestUrl;
 }
 
 export async function getGenres(): Promise<string[]> {

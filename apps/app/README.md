@@ -5,6 +5,18 @@ One codebase, three targets: web, iOS, and Android — built with Expo Router
 monorepo - the backend lives in `../../services` and `../../docker-compose.yml`
 at the repo root; see the root README for how the two fit together.
 
+## Page structure
+
+| Route | Auth required? | What it is |
+|---|---|---|
+| `/` | No | Public landing page - nav bar (Free Movies tab, Login/Sign up buttons top-right), browses the full catalog. This is what a first-time visitor sees. |
+| `/login` | No | Login/signup, both by email+password and phone+OTP. Reached via the landing page's Login/Sign up buttons (which pass `?mode=login` or `?mode=signup` to open the right tab). |
+| `/dashboard` | Yes | The real app - genre filtering, recommendations, subscribe banner, admin link if applicable. Redirects to `/` if you're not signed in; login/signup redirect here on success. |
+| `/watch/[id]` | Only for paid titles | Free titles (`isFree: true`) play without an account - verified server-side by `playback-service` against `catalog-service`, not just a client-side check. Paid titles still require login + an active subscription (see `services/README.md`). |
+| `/subscribe`, `/checkout-result` | Yes | Stripe/PayPal checkout flow. |
+| `/forgot-password`, `/reset-password` | No | Password reset flow. |
+| `/admin/titles` | Yes (admin role) | Add/edit/remove catalog titles. |
+
 ## What's actually shared vs. platform-specific
 
 Shared (one file, runs everywhere): all routes in `app/`, the API client,

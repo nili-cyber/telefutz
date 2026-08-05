@@ -4,125 +4,142 @@ The full setup in `../aws` (ECS, RDS, ElastiCache, ALB, NAT gateway) is the
 production-grade version, but genuinely cannot be free - Fargate, the ALB,
 and the NAT gateway have no free tier at all. This is the alternative: one
 EC2 instance running the exact same `docker-compose.yml` you already run
-locally. Same containers, same architecture, just on one box instead of
-spread across managed AWS services.
+locally, with a GitHub Actions pipeline that deploys to it automatically -
+close to free on a new AWS account.
 
 ## What you're trading away
 
-- **No redundancy** - one instance, one point of failure. If it goes down,
-  everything's down until you fix it.
+- **No redundancy** - one instance, one point of failure.
 - **No auto-scaling** - fixed capacity, whatever the instance size gives you.
-- **Manual deploys** - `git pull && docker compose up -d --build` over SSH,
-  not `git push` triggering anything automatically.
 - **No managed database backups** - Postgres and Redis are containers on
-  this same instance, not RDS/ElastiCache, so there's no automated backup
-  unless you set one up yourself.
+  this same instance, not RDS/ElastiCache.
 
 That's a completely reasonable trade for getting something real online
 cheaply while you're early. Move to `../aws` when any of the above starts
 actually mattering.
 
-## Cost
+## The pipeline: what happens automatically vs. what's a one-time step
 
-With a **new** AWS account (first 12 months): close to $0 - `t3.micro`
-(750 free hours/month) and the 30GB EBS volume (30GB free tier) are both
-covered. After 12 months, or on an existing account: roughly **$8-10/month**
-for the instance plus a couple dollars for storage.
+**On demand, whenever you trigger it** (via `.github/workflows/deploy.yml`,
+GitHub's Actions tab → "Deploy to AWS" → "Run workflow" - manual by default,
+not on every push, so a half-finished commit can't accidentally deploy
+itself): Docker images rebuild on the instance (one at a time - a small
+instance genuinely runs out of memory building all six at once), containers
+restart, the web app rebuilds fresh in GitHub's CI (not on the small
+instance - no memory constraints there), and the new build gets copied
+over. Want it to redeploy automatically on every push instead? Add a
+`push: branches: [main]` trigger back under `on:` in the workflow file.
 
-One honest caveat on `t3.micro`: it only has 1GB of RAM, and running
-Postgres + Redis + all 6 Node services at once is genuinely tight,
-especially while `npm install` runs inside each container on first build.
-If containers start getting OOM-killed, resize to `t3.small` (2GB RAM,
-~$15/month, not free) - see the resize note at the bottom.
+**One-time, per instance** (`terraform apply` + a few GitHub secrets):
+Provisioning the instance itself. `user_data` fully configures a brand new
+instance on first boot - Docker, permanent swap space, Caddy with automatic
+HTTPS if you give it a domain, and the file permission Caddy needs to serve
+your app's files. None of that needs a manual SSH session anymore; it used
+to, and every one of those manual steps is now baked into `main.tf` because
+it caused a real debugging session the first time around.
 
-## Steps
-
-### 1. Generate an SSH key if you don't already have one
-
-```bash
-ssh-keygen -t ed25519 -C "telefutz-deploy"
-cat ~/.ssh/id_ed25519.pub
-```
-
-### 2. Apply
+## Step 1: Apply the infrastructure
 
 ```bash
+ssh-keygen -t ed25519 -C "telefutz-deploy"   # skip if you already have a key
+
 cd infra/aws-starter
 terraform init
 terraform apply \
   -var="ssh_cidr=$(curl -s https://checkip.amazonaws.com)/32" \
-  -var="ssh_public_key=$(cat ~/.ssh/id_ed25519.pub)"
+  -var="ssh_public_key=$(cat ~/.ssh/id_ed25519.pub)" \
+  -var="domain_name=yourdomain.com" \
+  -var="route53_zone_id=YOUR_ZONE_ID"
 ```
 
-Takes about a minute - this is a single instance, not a VPC full of managed
-services.
+The last two `-var` flags are optional:
+- Omit `domain_name` entirely to skip HTTPS setup and just get plain HTTP
+  on port 3000/8080 (you can add a domain later by re-applying with it set).
+- Omit `route53_zone_id` if your domain isn't managed in Route 53, or if
+  you'd rather point DNS at the instance yourself - `terraform output
+  instance_public_ip` gives you the IP for a manual A record. Find your
+  zone ID with `aws route53 list-hosted-zones` if you do want this
+  automated.
 
-### 3. SSH in and get the code onto the instance
+Takes about a minute for the instance to launch; give it another minute or
+two after that for `user_data` to finish installing everything before it's
+actually ready.
+
+## Step 2: Create the four databases (one-time per instance)
+
+Same as before - Postgres needs `authdb`, `catalogdb`, `playbackdb`, and
+`billingdb` created before the services can start cleanly:
 
 ```bash
 ssh ubuntu@$(terraform output -raw instance_public_ip)
-```
-Docker's already installed (via the instance's startup script) - check with
-`docker --version`. If it's not there yet, the startup script is still
-running; wait 30 seconds and try again.
-
-From inside that SSH session:
-```bash
-git clone https://github.com/nili-cyber/telefutz.git
+git clone https://github.com/YOUR_USERNAME/telefutz.git
 cd telefutz
+docker compose up -d postgres
+docker compose exec postgres psql -U telefutz -d postgres -c \
+  "CREATE DATABASE authdb; CREATE DATABASE catalogdb; CREATE DATABASE playbackdb; CREATE DATABASE billingdb;"
 ```
 
-### 4. Fill in real secrets (optional for now)
+(This is simpler than the RDS path's version in `../aws/README.md` -
+Postgres is a local container here, so no security-group juggling needed to
+reach it.)
 
-`docker-compose.yml` ships with the same placeholder values
-(`sk_test_replace_me`, etc.) as always - edit it directly on the instance
-if you have real Stripe/PayPal credentials ready, or leave the placeholders
-and come back to this later. Same file, same env vars documented in
-`services/README.md`.
+## Step 3: Set up the GitHub Actions secrets (one-time per instance)
 
-### 5. Bring it up
+In your repo on GitHub: **Settings → Secrets and variables → Actions → New
+repository secret**. Add three:
+
+| Secret | Value |
+|---|---|
+| `EC2_HOST` | `terraform output -raw instance_public_ip` (or your domain, once DNS has propagated) |
+| `EC2_SSH_KEY` | The **private** key matching what you gave Terraform - `cat ~/.ssh/id_ed25519` (the one *without* `.pub`) |
+| `WEB_API_URL` | `terraform output -raw site_url` - the URL the web app's API calls should point at |
+
+## Step 4: Run the pipeline
+
+**Actions tab → Deploy to AWS → Run workflow**. Watch it run - two jobs,
+`deploy-backend` then `deploy-web`. When both go green, visit
+`terraform output -raw site_url`.
+
+From here on, redeploying is just re-running the workflow from the Actions
+tab whenever you're ready - it won't fire on its own from a `git push`.
+
+## Deploying to a brand new instance later
+
+This is the part that used to be the most manual and is now mostly not:
 
 ```bash
-docker compose up -d --build
+cd infra/aws-starter
+terraform apply -var="..." # same as Step 1 - creates a fresh, fully-configured instance
 ```
 
-First build takes a few minutes (installing dependencies inside each
-container). `infra/init-db.sql` runs automatically on Postgres's first
-boot, same as locally - no manual database-creation step needed here,
-unlike the RDS path in `../aws`.
+Then just update the `EC2_HOST` secret in GitHub (new instance = new IP,
+unless you're using `route53_zone_id`, in which case DNS updates
+automatically and `EC2_HOST` can just stay as your domain name). Run the
+pipeline once manually (Actions tab → Run workflow) to get the first
+deployment onto it, and Step 2's database creation still needs doing once
+per instance. Everything else - Docker, swap, Caddy, HTTPS - the new
+instance already has, from `user_data`.
 
-### 6. Check it's actually up
+## Troubleshooting / how it works under the hood
 
-From your own machine (not the SSH session):
-```bash
-curl http://$(terraform output -raw instance_public_ip):8080/health
-```
+If you're debugging something the pipeline doesn't cover, or want to
+understand what `user_data` actually automated:
 
-### 7. Point the app at it
-
-Set `EXPO_PUBLIC_API_URL` (in `apps/app/.env`, or wherever you're building
-from) to `terraform output -raw gateway_url`.
-
-## Redeploying after a code change
-
-```bash
-ssh ubuntu@$(terraform output -raw instance_public_ip)
-cd telefutz && git pull && docker compose up -d --build
-```
-
-## Resizing to `t3.small` if `t3.micro` runs out of memory
-
-```bash
-terraform apply -var="instance_type=t3.small" -var="ssh_cidr=..." -var="ssh_public_key=..."
-```
-This replaces the instance, so you'll need to redo step 3 onward
-afterward - your Elastic IP stays the same, but the instance itself (and
-anything on its disk) doesn't survive a resize.
-
-## This is HTTP, not HTTPS
-
-Same caveat as the ECS path - no TLS here either. Fine for testing, not
-for real users entering card details. A domain + a reverse proxy like Caddy
-or nginx with Let's Encrypt (both trivial to add to this instance) is the
-next step once you're ready for real traffic - ask if you want help setting
-that up.
+- **Docker builds getting `Killed` mid-build**: memory - the pipeline
+  already builds one service at a time for exactly this reason, and
+  `user_data` sets up 2GB of permanent swap space as a safety net. If you're
+  running `docker compose build` by hand and skip the one-at-a-time
+  approach, you can still hit this.
+- **A Prisma-using service (auth/catalog/playback/billing) crash-loops
+  mentioning OpenSSL**: already fixed in each service's Dockerfile
+  (`RUN apk add --no-cache openssl`) - `node:20-alpine` doesn't ship it by
+  default and Prisma's engine needs it.
+- **Caddy returns 403 for everything**: Caddy runs as its own system user
+  and can't traverse into `/home/ubuntu` without `chmod o+x /home/ubuntu` -
+  already applied by `user_data` on a fresh instance. If you're seeing this
+  anyway, that fix may not have run (check `user_data` actually completed:
+  `sudo cloud-init status`).
+- **`git push` to the pipeline fails / SSH errors in the Actions log**:
+  almost always `EC2_SSH_KEY` being the wrong key (public instead of
+  private), or `EC2_HOST` being stale after replacing the instance - both
+  are the first two things to check.

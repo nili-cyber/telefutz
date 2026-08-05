@@ -7,10 +7,10 @@ const prisma = new PrismaClient();
 const router = Router();
 
 // Genre-keyed cache entries get stale the moment a title is created, edited,
-// or removed - clear the specific genre(s) touched plus the "all" row so
-// the admin's changes show up immediately instead of waiting out the TTL.
+// or removed - clear the specific genre(s) touched plus the "all" and
+// "free" rows so changes show up immediately instead of waiting out the TTL.
 async function invalidateTitleCaches(...genres: (string | null | undefined)[]) {
-  const keys = new Set(["titles:all"]);
+  const keys = new Set(["titles:all", "titles:free"]);
   for (const genre of genres) if (genre) keys.add(`titles:${genre}`);
   await Promise.all([...keys].map((key) => redis.del(key)));
 }
@@ -25,6 +25,23 @@ router.get("/titles", async (req, res) => {
 
   const titles = await prisma.title.findMany({
     where: genre ? { genre } : undefined,
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+
+  await redis.set(cacheKey, JSON.stringify(titles), "EX", CACHE_TTL_SECONDS);
+  res.json(titles);
+});
+
+// Public (no auth) - what the home page's "Free Movies" tab reads from,
+// and the only /titles-shaped data an anonymous visitor can see.
+router.get("/titles/free", async (_req, res) => {
+  const cacheKey = "titles:free";
+  const cached = await redis.get(cacheKey);
+  if (cached) return res.json(JSON.parse(cached));
+
+  const titles = await prisma.title.findMany({
+    where: { isFree: true },
     orderBy: { createdAt: "desc" },
     take: 50,
   });
@@ -69,6 +86,7 @@ const titleInputSchema = z.object({
   releaseYear: z.number().int().min(1888).max(2100),
   posterUrl: z.string().min(1),
   videoId: z.string().min(1),
+  isFree: z.boolean().optional(),
 });
 
 // Admin-only - enforced by api-gateway's requireAdmin before this is ever

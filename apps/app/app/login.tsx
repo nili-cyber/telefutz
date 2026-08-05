@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { colors } from "../src/theme";
 import { useAuth } from "../src/auth-context";
 import { requestPhoneOtp } from "../src/api";
@@ -13,7 +13,8 @@ export default function LoginScreen() {
   const [method, setMethod] = useState<Method>("email");
 
   // --- email/password state ---
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const { mode: initialMode } = useLocalSearchParams<{ mode?: string }>();
+  const [mode, setMode] = useState<"login" | "signup">(initialMode === "signup" ? "signup" : "login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -35,7 +36,7 @@ export default function LoginScreen() {
     try {
       if (mode === "login") await signIn(email, password);
       else await signUp(email, password, displayName, signupPhone || undefined);
-      router.replace("/");
+      router.replace("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -68,7 +69,7 @@ export default function LoginScreen() {
       // originally created via email+phone at signup), that same account
       // logs in - this doesn't create a duplicate.
       await signInWithPhone(phone, code, phoneDisplayName || undefined);
-      router.replace("/");
+      router.replace("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {

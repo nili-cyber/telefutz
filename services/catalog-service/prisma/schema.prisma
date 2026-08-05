@@ -15,6 +15,7 @@ model Title {
   releaseYear Int
   posterUrl   String
   videoId     String   // maps to the object-storage key / playback manifest
+  isFree      Boolean  @default(false)
   createdAt   DateTime @default(now())
 
   @@index([genre])

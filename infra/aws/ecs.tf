@@ -100,6 +100,7 @@ locals {
     playback-service = [
       { name = "PORT", value = "4004" },
       { name = "REDIS_URL", value = "redis://${local.redis_endpoint}" },
+      { name = "CATALOG_SERVICE_URL", value = "http://catalog-service.${local.internal}:4002" },
     ]
     billing-service = [
       { name = "PORT", value = "4005" },

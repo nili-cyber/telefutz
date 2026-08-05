@@ -5,7 +5,7 @@ import { colors } from "../../src/theme";
 import { useAuth } from "../../src/auth-context";
 import { getTitles, createTitle, deleteTitle, Title } from "../../src/api";
 
-const emptyForm = { name: "", description: "", genre: "", releaseYear: "", posterUrl: "", videoId: "" };
+const emptyForm = { name: "", description: "", genre: "", releaseYear: "", posterUrl: "", videoId: "", isFree: false };
 
 export default function AdminTitlesScreen() {
   const router = useRouter();
@@ -45,6 +45,7 @@ export default function AdminTitlesScreen() {
         releaseYear,
         posterUrl: form.posterUrl || "/posters/placeholder.jpg",
         videoId: form.videoId || form.name.toLowerCase().replace(/\s+/g, "-"),
+        isFree: form.isFree,
       });
       setForm(emptyForm);
       await load();
@@ -92,6 +93,10 @@ export default function AdminTitlesScreen() {
             </View>
             <TextInput style={styles.input} placeholder="Poster URL (optional)" placeholderTextColor={colors.textMuted} value={form.posterUrl} onChangeText={(v) => setForm({ ...form, posterUrl: v })} />
             <TextInput style={styles.input} placeholder="Video ID (optional - used by playback-service)" placeholderTextColor={colors.textMuted} value={form.videoId} onChangeText={(v) => setForm({ ...form, videoId: v })} />
+            <Pressable style={styles.freeToggle} onPress={() => setForm({ ...form, isFree: !form.isFree })}>
+              <View style={[styles.checkbox, form.isFree && styles.checkboxChecked]} />
+              <Text style={styles.freeToggleLabel}>Free - visible without an account or subscription</Text>
+            </Pressable>
 
             {error && <Text style={styles.error}>{error}</Text>}
 
@@ -107,7 +112,7 @@ export default function AdminTitlesScreen() {
         <View style={styles.row}>
           <View style={{ flex: 1 }}>
             <Text style={styles.rowTitle}>{item.name}</Text>
-            <Text style={styles.rowSub}>{item.genre} · {item.releaseYear}</Text>
+            <Text style={styles.rowSub}>{item.genre} · {item.releaseYear}{item.isFree ? " · Free" : ""}</Text>
           </View>
           <Pressable onPress={() => handleDelete(item)}>
             <Text style={styles.remove}>Remove</Text>
@@ -138,5 +143,9 @@ const styles = StyleSheet.create({
   },
   rowTitle: { color: colors.text, fontSize: 14, fontWeight: "500" },
   rowSub: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  freeToggle: { flexDirection: "row", alignItems: "center", marginBottom: 14, marginTop: 2 },
+  checkbox: { width: 18, height: 18, borderRadius: 4, borderWidth: 1, borderColor: colors.border, marginRight: 10 },
+  checkboxChecked: { backgroundColor: colors.accent, borderColor: colors.accent },
+  freeToggleLabel: { color: colors.textMuted, fontSize: 13 },
   remove: { color: colors.error, fontSize: 13, fontWeight: "600" },
 });
